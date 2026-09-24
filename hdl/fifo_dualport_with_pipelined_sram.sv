@@ -16,8 +16,8 @@ module fifo_dualport_with_pipelined_sram #(
         .WIDTH ( WIDTH ),
         .DEPTH ( DEPTH )
     ) i_mem (
-        .clk_i   (),
-        .rst_i   (),
+        .clk_i   (clk_i),
+        .rst_i   (rst_i),
         .wen_i   (),
         .ren_i   (),
         .waddr_i (),
@@ -28,4 +28,5 @@ module fifo_dualport_with_pipelined_sram #(
     );
 
 
+    
 endmodule
