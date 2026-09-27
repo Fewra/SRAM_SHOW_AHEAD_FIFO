@@ -78,7 +78,7 @@ module bram_fifo #(
     wire equal_ptrs   = (wr_ptr == rd_ptr);
     wire same_circles = (wr_ptr_odd_circle == rd_ptr_odd_circle);
 
-    assign full  = equal_ptrs & ~same_circles;
-    assign empty = equal_ptrs & same_circles;
+    assign full_o  = equal_ptrs & ~same_circles;
+    assign empty_o = equal_ptrs & same_circles;
 
 endmodule
