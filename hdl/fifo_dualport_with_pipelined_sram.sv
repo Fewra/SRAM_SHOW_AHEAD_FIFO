@@ -10,16 +10,16 @@ module fifo_dualport_with_pipelined_sram #(
     output logic [WIDTH-1:0] data_o,
     output logic             empty_o,
     output logic             full_o
-);
+);  
+
 
     // ======== SRAM В ВИДЕ FIFO С ДОП СИГНАЛАМИ ========
 
     localparam SRAM_PTR_WIDTH       = $clog2(DEPTH);
     localparam SRAM_MAX_PTR         = DEPTH - 1;
     localparam SRAM_LATENCY         = 5;
-    localparam SRAM_POP_COUNT_WIDTH = $clog2(SRAM_LATENCY);
-    
-    localparam BUF_DEPTH = SRAM_LATENCY + 1;
+    localparam SRAM_POP_COUNT_WIDTH = $clog2(SRAM_LATENCY + 1 + 1); // +1 так как buf надо ещё один такт на захват данных, после пояления их на выходе sram. 
+                                                                    // Счетчик размером только под максимальное кол-во элементов в buf
 
     // сигналы для логики sram
     // текущая логика превращает sram в fifo с задержкой в 5 тактов
@@ -94,7 +94,7 @@ module fifo_dualport_with_pipelined_sram #(
     assign sram_full  = sram_equal_ptrs & ~sram_same_circles;
     assign sram_empty = sram_equal_ptrs & sram_same_circles;
 
-    // логика счетчика сделанных pop из sram (значение не может быть выше 5, так как latency=5)
+    // логика счетчика необработанных pop из sram
     always_ff @(posedge clk_i) 
     begin
         if (rst_i)
@@ -111,12 +111,18 @@ module fifo_dualport_with_pipelined_sram #(
 
     assign sram_wait_out = (sram_pop_count != SRAM_POP_COUNT_WIDTH'(0));
 
+
     // ======== БУФЕР НА ВЫХОДЕ ========
 
+    localparam BUF_DEPTH            = SRAM_LATENCY + 1; // +1 так как buf надо ещё один такт на захват данных, после пояления их на выходе sram
+    localparam BUF_COUNT_WIDTH = $clog2(BUF_DEPTH + 1);
+
     // сигналы для работы с буфером
-    logic                 buf_full, buf_empty;
-    logic                 buf_push, buf_pop;
-    logic [WIDTH - 1 : 0] buf_data_i;
+    logic                                buf_full, buf_empty;
+    logic                                buf_push, buf_pop;
+    logic [WIDTH - 1 : 0]                buf_data_i;
+
+    logic [BUF_COUNT_WIDTH - 1 : 0]      buf_count;
 
     logic bypass; // сигнал для обхода sram данными прямо в fifo на выходе
 
@@ -134,17 +140,34 @@ module fifo_dualport_with_pipelined_sram #(
         .empty_o (buf_empty)
     );
 
+    // логика счетчика элементов в buf
+    always_ff @(posedge clk_i) 
+    begin
+        if (rst_i)
+            buf_count <= '0;
+        else
+        begin
+            case ({buf_push, buf_pop})
+                2'b10   : buf_count <= buf_count + 1;
+                2'b01   : buf_count <= buf_count - 1;
+                default : buf_count <= buf_count;
+            endcase
+        end
+    end
 
 
     // ======== СОЕДИНЕНИЕ ОБОИХ БЛОКОВ В SHOW-AHEAD FIFO ========
+
     assign bypass     = ~buf_full & sram_empty & ~sram_wait_out;
     assign buf_data_i = bypass ? data_i : sram_data_o; // проброс данных
 
     assign sram_push  = ~bypass & wr_en_i & ~sram_full;
-    assign sram_pop   = ~buf_full & ~sram_empty;
+    assign sram_pop   = ~sram_empty & ((BUF_DEPTH > sram_pop_count + buf_count) | buf_pop); // читаем из sram в buf если происходит 1 из 2 событий:
+                                                                                            // 1) в буфере есть свободное место
+                                                                                            // 2) пользователь прочитал данные в данном такте
 
     assign buf_push   = bypass ? wr_en_i : sram_data_out_vld;
-    assign buf_pop    = rd_en_i & ~buf_empty;
+    assign buf_pop    = rd_en_i & ~buf_empty; 
 
     assign full_o     = sram_full;
     assign empty_o    = buf_empty;
